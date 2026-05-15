@@ -1,0 +1,116 @@
+name: Playwright AI Router
+description: Run Playwright tests, collect compact evidence, and route AI failure-analysis or review tasks between a fast model and a smart model based on cost and signal.
+author: playwright-ai-router
+
+branding:
+  icon: git-pull-request
+  color: purple
+
+inputs:
+  test-command:
+    description: Command used to run Playwright. The action captures stdout/stderr and the exit code.
+    required: false
+    default: npx playwright test
+  provider:
+    description: Provider name. Used only to pick a sensible default base-url when base-url is empty. Any OpenAI-compatible endpoint works.
+    required: false
+    default: openrouter
+  fast-model:
+    description: Cheap/fast model id. Used for the first pass on every AI call.
+    required: false
+    default: qwen/qwen3-coder
+  smart-model:
+    description: Smart/expensive model id. Used only when the fast model is uncertain, returns invalid JSON, or visual evidence is involved.
+    required: false
+    default: moonshotai/kimi-k2.6
+  mode:
+    description: One of off, failure-analysis, review.
+    required: false
+    default: failure-analysis
+  api-key:
+    description: API key for the LLM provider. Required unless mode=off.
+    required: false
+    default: ''
+  base-url:
+    description: OpenAI-compatible base URL (e.g. https://openrouter.ai/api/v1). Defaults based on provider.
+    required: false
+    default: ''
+  app-url:
+    description: Optional URL of the app under test. Passed to the model as context only.
+    required: false
+    default: ''
+
+outputs:
+  summary-path:
+    description: Path to the generated markdown summary.
+    value: ${{ steps.summary.outputs.summary-path }}
+  ai-called:
+    description: 'true if an AI model was called, false otherwise.'
+    value: ${{ steps.route.outputs.ai-called }}
+  model-used:
+    description: Final model id used (fast or smart) or empty if no AI call was made.
+    value: ${{ steps.route.outputs.model-used }}
+  conclusion:
+    description: One of success, failure, ai-flagged.
+    value: ${{ steps.summary.outputs.conclusion }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mask API key
+      if: inputs.api-key != ''
+      shell: bash
+      run: echo "::add-mask::${{ inputs.api-key }}"
+
+    - name: Prepare workspace
+      shell: bash
+      run: |
+        rm -rf .playwright-ai-router
+        mkdir -p .playwright-ai-router
+
+    - name: Run Playwright
+      id: run
+      shell: bash
+      env:
+        TEST_COMMAND: ${{ inputs.test-command }}
+      run: bash "${{ github.action_path }}/scripts/run-tests.sh"
+
+    - name: Collect evidence
+      id: evidence
+      shell: bash
+      env:
+        APP_URL: ${{ inputs.app-url }}
+        MODE: ${{ inputs.mode }}
+      run: node "${{ github.action_path }}/scripts/collect-evidence.js"
+
+    - name: Route AI
+      id: route
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        PROVIDER: ${{ inputs.provider }}
+        FAST_MODEL: ${{ inputs.fast-model }}
+        SMART_MODEL: ${{ inputs.smart-model }}
+        API_KEY: ${{ inputs.api-key }}
+        BASE_URL: ${{ inputs.base-url }}
+        APP_URL: ${{ inputs.app-url }}
+      run: node "${{ github.action_path }}/scripts/route-ai.js"
+
+    - name: Build summary
+      id: summary
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        APP_URL: ${{ inputs.app-url }}
+      run: |
+        node "${{ github.action_path }}/scripts/build-summary.js"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f playwright-ai-router-summary.md ]; then
+          cat playwright-ai-router-summary.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Exit with Playwright status
+      shell: bash
+      run: |
+        CODE="$(cat .playwright-ai-router/exit-code 2>/dev/null || echo 1)"
+        echo "Playwright exit code: $CODE"
+        exit "$CODE"

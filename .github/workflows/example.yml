@@ -1,0 +1,73 @@
+name: Example — Playwright AI Router
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly review run at 02:00 UTC. The "review" mode always summarises the
+    # run via the fast model and escalates only when needed.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps
+
+      - name: Decide AI mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review') }}
+        run: |
+          # PRs: failure-analysis by default; full review when the `ai-review`
+          # label is on the PR. Nightly schedule: full review. Otherwise: off.
+          if [ "$EVENT" = "pull_request" ] && [ "$HAS_LABEL" = "true" ]; then
+            echo "mode=review" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = "pull_request" ]; then
+            echo "mode=failure-analysis" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = "schedule" ]; then
+            echo "mode=review" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=failure-analysis" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Playwright AI Router
+        id: ai
+        uses: ./
+        with:
+          test-command: npx playwright test --reporter=list
+          provider: openrouter
+          fast-model: qwen/qwen3-coder
+          smart-model: moonshotai/kimi-k2.6
+          mode: ${{ steps.mode.outputs.mode }}
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          app-url: ${{ vars.APP_URL }}
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+            playwright-ai-router-summary.md
+          if-no-files-found: ignore
+
+      - name: Comment AI summary on PR
+        if: github.event_name == 'pull_request' && steps.ai.outputs.ai-called == 'true'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: playwright-ai-router
+          path: ${{ steps.ai.outputs.summary-path }}

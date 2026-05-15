@@ -1,0 +1,5 @@
+.playwright-ai-router/
+playwright-ai-router-summary.md
+node_modules/
+test-results/
+playwright-report/
