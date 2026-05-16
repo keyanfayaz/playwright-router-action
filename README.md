@@ -289,5 +289,5 @@ DRY_RUN=1 PR_META_PATH=.playwright-ai-router/pr-meta.json node scripts/pr-writeb
 Unit tests (no dependencies, Node's built-in runner):
 
 ```bash
-node --test test/
+node --test test/*.test.js
 ```
