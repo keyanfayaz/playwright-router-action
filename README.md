@@ -32,7 +32,9 @@ It works against any **OpenAI-compatible** chat endpoint
 ```
 
 A full example (label-driven review, nightly cron, PR comment) lives in
-[`.github/workflows/example.yml`](.github/workflows/example.yml).
+[`.github/workflows/example.yml`](.github/workflows/example.yml). A complete
+`mode: test-plan` workflow (permissions, `paths-ignore`, bot-actor guard,
+concurrency) lives in [`examples/test-plan.yml`](examples/test-plan.yml).
 
 ---
 
@@ -41,7 +43,7 @@ A full example (label-driven review, nightly cron, PR comment) lives in
 | Name           | Default                          | Description |
 |----------------|----------------------------------|-------------|
 | `test-command` | `npx playwright test`            | Command used to run Playwright. The action captures stdout/stderr and the exit code. |
-| `mode`         | `failure-analysis`               | `off`, `failure-analysis`, or `review`. |
+| `mode`         | `failure-analysis`               | `off`, `failure-analysis`, `review`, or `test-plan`. |
 | `provider`     | `openrouter`                     | Selects a default `base-url` if you don't pass one. |
 | `fast-model`   | `qwen/qwen3-coder`               | Cheap/fast model id, used for the first pass. |
 | `smart-model`  | `moonshotai/kimi-k2.6`           | Smart model id, used only on escalation. |
@@ -49,14 +51,34 @@ A full example (label-driven review, nightly cron, PR comment) lives in
 | `base-url`     | _(provider default)_             | OpenAI-compatible base URL (e.g. `https://openrouter.ai/api/v1`). |
 | `app-url`      | _(empty)_                        | Optional URL of the app under test, passed to the model for context. |
 
+### `mode: test-plan` inputs
+
+| Name                   | Default                                  | Description |
+|------------------------|------------------------------------------|-------------|
+| `github-token`         | _(empty)_                                | **Required for `test-plan`.** Used to read/edit the PR, comment, and push generated specs. Needs `contents: write` + `pull-requests: write`. |
+| `spec-output-dir`      | `e2e/specs/generated`                    | Where generated specs are written and committed. |
+| `test-command-single`  | `npx playwright test`                    | Command to run a single generated spec; the spec path is appended. |
+| `max-iterations`       | `20`                                     | Max generate→run→fix iterations per item. |
+| `wall-clock-seconds`   | `480`                                    | Max wall-clock seconds per item. |
+| `screenshot-dir`       | `.playwright-ai-router/screenshots`      | Where the model writes screenshots; committed alongside passing specs. |
+| `screenshots-per-item` | `8`                                      | Max screenshots committed per automated item. |
+| `skip-patterns`        | `ask ,PM ,design review,manually verify with` | Comma-separated, case-insensitive substrings; matching items are reported skipped (not attempted) unless they carry a `Manual:` hint. Trailing spaces are significant. |
+| `bot-name`             | `playwright-ai-router[bot]`              | git author/committer name for bot commits. |
+| `bot-email`            | `playwright-ai-router[bot]@users.noreply.github.com` | git author/committer email for bot commits. |
+
 ## Outputs
 
-| Name           | Description |
-|----------------|-------------|
-| `summary-path` | Path to the rendered markdown summary (`playwright-ai-router-summary.md`). |
-| `ai-called`    | `'true'` if an LLM was called, `'false'` otherwise. |
-| `model-used`   | Final model id used (fast or smart) or empty. |
-| `conclusion`   | `success`, `failure`, or `ai-flagged` (passed run that the AI flagged as failing/ambiguous). |
+| Name              | Description |
+|-------------------|-------------|
+| `summary-path`    | Path to the rendered markdown summary (`playwright-ai-router-summary.md`). |
+| `ai-called`       | `'true'` if an LLM was called, `'false'` otherwise. |
+| `model-used`      | Final model id used (fast or smart) or empty. |
+| `conclusion`      | `success`, `failure`, or `ai-flagged` (passed run that the AI flagged as failing/ambiguous). |
+| `items-total`     | _(test-plan)_ Total Test plan items found. |
+| `items-automated` | _(test-plan)_ Items turned into committed, passing specs. |
+| `items-failed`    | _(test-plan)_ Items that never produced a green spec. |
+| `items-skipped`   | _(test-plan)_ Items reported as skipped. |
+| `commit-sha`      | _(test-plan)_ Bot commit SHA pushed to the PR head, or empty. |
 
 The action **always fails the job when Playwright failed** — but only after the
 AI summary has been generated and uploaded to `$GITHUB_STEP_SUMMARY`.
@@ -82,6 +104,96 @@ never echoed back to logs.
 | `off`              | no AI call                          | no AI call                                              |
 | `failure-analysis` | no AI call                          | fast model triage; escalates to smart on low signal     |
 | `review`           | fast model writes a short PR review | fast model triage; escalates to smart on low signal     |
+| `test-plan`        | turns the PR's `## Test plan` into committed, passing specs (see below) | same                       |
+
+---
+
+## Mode: test-plan
+
+Turns a pull request's prose **`## Test plan`** into committed, passing
+Playwright specs.
+
+**Selection.** Every **unchecked** `- [ ]` item under the `## Test plan`
+heading is attempted — selection is **not** gated on any marker (relying on
+authors or coding agents to tag items is unreliable and silently loses
+coverage). Filtering is handled two ways instead:
+
+- `skip-patterns` (substring match) reports clearly human-only items as
+  *skipped* without attempting them, and
+- the model itself can declare an item `non_automatable`.
+
+An optional leading **`Manual:`** (case-insensitive) is just a strong
+"definitely automate" hint that **bypasses `skip-patterns`** — its absence
+costs nothing.
+
+**Loop.** For each attemptable item the action runs a bounded
+generate→run→fix loop: the model returns, via a strict JSON protocol, the spec
+file(s) to write and the command(s) to run; trusted code applies sandboxed
+writes, runs only allowlisted commands, reuses the existing
+`run-tests.sh` + `collect-evidence.js` to evaluate the spec, and feeds compact
+failure evidence back. It stops on green, or at `max-iterations` /
+`wall-clock-seconds` per item.
+
+**Write-back.** Specs that end green (plus their screenshots, capped at
+`screenshots-per-item`) are committed to the PR head branch by a dedicated bot
+identity with `[skip ci]`. Each newly-covered checkbox is ticked
+(`- [ ]` → `- [x]`) after re-fetching the live PR body so concurrent edits are
+never clobbered. One idempotent comment summarises automated / failed /
+skipped, with screenshots inlined via
+`https://github.com/<owner>/<repo>/raw/<head-branch>/<path>`.
+
+When nothing is automated (or there is no `## Test plan` section) the action
+posts the comment, emits a GitHub `::warning::` annotation that the PR shipped
+without generated coverage, and **exits 0** — it never blocks the check.
+
+### Security model
+
+- **Command allowlist.** Model-proposed shell strings are regex-checked: only
+  the configured `test-command-single` (+ at most one in-`spec-output-dir`
+  `.spec` path), `git status`, `ls`, and `cat` ever run. `rm`, `curl`, `npm i`,
+  `git commit`/`push`, `bash -c`, and any chained/piped/redirected command are
+  rejected and surfaced back to the model.
+- **Sandboxed writes.** Model writes are confined to `spec-output-dir` /
+  `screenshot-dir`, with no absolute paths or `..`, and size/count caps.
+- **The model never runs git.** Commits and the single push are done by trusted
+  action code only, after a spec passes.
+- **Fork PRs are skipped** (no secret/token access): the action exits 0 with an
+  explanatory comment.
+
+### Required permissions & consumer guards
+
+```yaml
+permissions:
+  contents: write          # push generated specs to the PR branch
+  pull-requests: write     # edit the PR body + comment
+
+concurrency:               # recommended: avoid racing pushes on the same PR
+  group: test-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+```
+
+Because the bot pushes back to the PR branch, consumers **must** add both of
+the following or the workflow will retrigger itself:
+
+1. A `paths-ignore` on the PR-triggered workflow for the generated dirs:
+
+   ```yaml
+   on:
+     pull_request:
+       paths-ignore:
+         - 'e2e/specs/generated/**'
+         - '.playwright-ai-router/screenshots/**'
+   ```
+
+2. A job-level guard skipping the bot actor:
+
+   ```yaml
+   jobs:
+     test-plan:
+       if: github.actor != 'playwright-ai-router[bot]'
+   ```
+
+The bot commits include `[skip ci]` as a second line of defence.
 
 ## Model routing
 
@@ -158,4 +270,24 @@ MODE=failure-analysis PROVIDER=openrouter \
   API_KEY=$OPENROUTER_API_KEY \
   node scripts/route-ai.js
 node scripts/build-summary.js
+```
+
+For `mode: test-plan`, every script honours `DRY_RUN=1` (no commit / push /
+PR-body edit / comment — would-be body and comment are dumped to
+`.playwright-ai-router/`):
+
+```bash
+GITHUB_EVENT_PATH=event.json node scripts/read-pr-meta.js
+SKIP_PATTERNS='ask ,PM ' PR_META_PATH=.playwright-ai-router/pr-meta.json \
+  node scripts/parse-test-plan.js
+DRY_RUN=1 PR_META_PATH=.playwright-ai-router/pr-meta.json \
+  API_KEY=$OPENROUTER_API_KEY FAST_MODEL=qwen/qwen3-coder SMART_MODEL=moonshotai/kimi-k2.6 \
+  node scripts/generate-spec.js
+DRY_RUN=1 PR_META_PATH=.playwright-ai-router/pr-meta.json node scripts/pr-writeback.js
+```
+
+Unit tests (no dependencies, Node's built-in runner):
+
+```bash
+node --test test/
 ```

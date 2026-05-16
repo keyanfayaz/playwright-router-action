@@ -1,0 +1,75 @@
+# Example consumer workflow for `mode: test-plan`.
+#
+# Copy into .github/workflows/ in your repo. It turns each PR's `## Test plan`
+# into committed, passing Playwright specs.
+#
+# IMPORTANT consumer guards (both required to avoid self-retrigger):
+#   - paths-ignore for the generated spec + screenshot dirs
+#   - the job-level `if:` skipping the bot actor
+name: Test plan → Playwright specs
+
+on:
+  pull_request:
+    branches: [main]
+    # Don't retrigger when the bot pushes generated specs/screenshots back.
+    paths-ignore:
+      - 'e2e/specs/generated/**'
+      - '.playwright-ai-router/screenshots/**'
+
+# One run per PR; never cancel a run that may be mid-push.
+concurrency:
+  group: test-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write          # push generated specs to the PR head branch
+  pull-requests: write     # tick checkboxes + post the summary comment
+
+jobs:
+  test-plan:
+    # Skip the bot's own pushes (second line of defence beyond [skip ci]).
+    if: github.actor != 'playwright-ai-router[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Check out the PR head branch with full history + a push-capable
+          # token so the bot can commit generated specs back.
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps
+
+      - name: Generate specs from the PR test plan
+        id: tp
+        uses: ./
+        with:
+          mode: test-plan
+          provider: openrouter
+          fast-model: qwen/qwen3-coder
+          smart-model: moonshotai/kimi-k2.6
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          app-url: ${{ vars.APP_URL }}
+          # Optional overrides (defaults shown):
+          # spec-output-dir: e2e/specs/generated
+          # test-command-single: npx playwright test
+          # max-iterations: '20'
+          # wall-clock-seconds: '480'
+          # skip-patterns: 'ask ,PM ,design review,manually verify with'
+
+      - name: Report
+        if: always()
+        run: |
+          echo "total=${{ steps.tp.outputs.items-total }}"
+          echo "automated=${{ steps.tp.outputs.items-automated }}"
+          echo "failed=${{ steps.tp.outputs.items-failed }}"
+          echo "skipped=${{ steps.tp.outputs.items-skipped }}"
+          echo "commit=${{ steps.tp.outputs.commit-sha }}"
