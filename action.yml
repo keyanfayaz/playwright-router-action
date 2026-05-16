@@ -24,7 +24,7 @@ inputs:
     required: false
     default: moonshotai/kimi-k2.6
   mode:
-    description: One of off, failure-analysis, review.
+    description: One of off, failure-analysis, review, test-plan.
     required: false
     default: failure-analysis
   api-key:
@@ -39,6 +39,52 @@ inputs:
     description: Optional URL of the app under test. Passed to the model as context only.
     required: false
     default: ''
+  github-token:
+    description: >-
+      GitHub token used by mode=test-plan to read/edit the PR, comment, and push
+      generated specs. Required when mode=test-plan (needs contents:write and
+      pull-requests:write). Unused by other modes.
+    required: false
+    default: ''
+  spec-output-dir:
+    description: Directory generated specs are written to (mode=test-plan).
+    required: false
+    default: e2e/specs/generated
+  test-command-single:
+    description: Command used to run a single generated spec (mode=test-plan). The spec path is appended.
+    required: false
+    default: npx playwright test
+  max-iterations:
+    description: Max generate->run->fix iterations per Test plan item (mode=test-plan).
+    required: false
+    default: '20'
+  wall-clock-seconds:
+    description: Max wall-clock seconds spent per Test plan item (mode=test-plan).
+    required: false
+    default: '480'
+  screenshot-dir:
+    description: Directory the model writes screenshots to (mode=test-plan).
+    required: false
+    default: .playwright-ai-router/screenshots
+  screenshots-per-item:
+    description: Max screenshots committed per automated item (mode=test-plan).
+    required: false
+    default: '8'
+  skip-patterns:
+    description: >-
+      Comma-separated, case-insensitive substrings. A Test plan item whose text
+      matches one is reported as skipped (not attempted) unless it carries a
+      `Manual:` hint. Trailing spaces in patterns are significant.
+    required: false
+    default: 'ask ,PM ,design review,manually verify with'
+  bot-name:
+    description: git author/committer name used for bot commits (mode=test-plan).
+    required: false
+    default: playwright-ai-router[bot]
+  bot-email:
+    description: git author/committer email used for bot commits (mode=test-plan).
+    required: false
+    default: playwright-ai-router[bot]@users.noreply.github.com
 
 outputs:
   summary-path:
@@ -53,6 +99,21 @@ outputs:
   conclusion:
     description: One of success, failure, ai-flagged.
     value: ${{ steps.summary.outputs.conclusion }}
+  items-total:
+    description: (mode=test-plan) Total Test plan items found.
+    value: ${{ steps.writeback.outputs.items-total }}
+  items-automated:
+    description: (mode=test-plan) Items turned into committed, passing specs.
+    value: ${{ steps.writeback.outputs.items-automated }}
+  items-failed:
+    description: (mode=test-plan) Items that never produced a green spec.
+    value: ${{ steps.writeback.outputs.items-failed }}
+  items-skipped:
+    description: (mode=test-plan) Items reported as skipped (not attempted).
+    value: ${{ steps.writeback.outputs.items-skipped }}
+  commit-sha:
+    description: (mode=test-plan) The bot commit SHA pushed to the PR head, or empty.
+    value: ${{ steps.writeback.outputs.commit-sha }}
 
 runs:
   using: composite
@@ -62,7 +123,9 @@ runs:
       shell: bash
       run: echo "::add-mask::${{ inputs.api-key }}"
 
+    # ----- off / failure-analysis / review pipeline (unchanged) -------------
     - name: Prepare workspace
+      if: inputs.mode != 'test-plan'
       shell: bash
       run: |
         rm -rf .playwright-ai-router
@@ -70,6 +133,7 @@ runs:
 
     - name: Run Playwright
       id: run
+      if: inputs.mode != 'test-plan'
       shell: bash
       env:
         TEST_COMMAND: ${{ inputs.test-command }}
@@ -77,6 +141,7 @@ runs:
 
     - name: Collect evidence
       id: evidence
+      if: inputs.mode != 'test-plan'
       shell: bash
       env:
         APP_URL: ${{ inputs.app-url }}
@@ -85,6 +150,7 @@ runs:
 
     - name: Route AI
       id: route
+      if: inputs.mode != 'test-plan'
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -98,6 +164,7 @@ runs:
 
     - name: Build summary
       id: summary
+      if: inputs.mode != 'test-plan'
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -109,8 +176,64 @@ runs:
         fi
 
     - name: Exit with Playwright status
+      if: inputs.mode != 'test-plan'
       shell: bash
       run: |
         CODE="$(cat .playwright-ai-router/exit-code 2>/dev/null || echo 1)"
         echo "Playwright exit code: $CODE"
         exit "$CODE"
+
+    # ----- test-plan pipeline ----------------------------------------------
+    - name: Prepare workspace (test-plan)
+      if: inputs.mode == 'test-plan'
+      shell: bash
+      env:
+        SPEC_OUTPUT_DIR: ${{ inputs.spec-output-dir }}
+        SCREENSHOT_DIR: ${{ inputs.screenshot-dir }}
+      run: |
+        rm -rf .playwright-ai-router
+        mkdir -p .playwright-ai-router "$SPEC_OUTPUT_DIR" "$SCREENSHOT_DIR"
+
+    - name: Read PR metadata
+      if: inputs.mode == 'test-plan'
+      shell: bash
+      run: node "${{ github.action_path }}/scripts/read-pr-meta.js"
+
+    - name: Parse Test plan
+      if: inputs.mode == 'test-plan'
+      shell: bash
+      env:
+        PR_META_PATH: .playwright-ai-router/pr-meta.json
+        SKIP_PATTERNS: ${{ inputs.skip-patterns }}
+      run: node "${{ github.action_path }}/scripts/parse-test-plan.js"
+
+    - name: Generate specs
+      if: inputs.mode == 'test-plan'
+      shell: bash
+      env:
+        PR_META_PATH: .playwright-ai-router/pr-meta.json
+        PROVIDER: ${{ inputs.provider }}
+        FAST_MODEL: ${{ inputs.fast-model }}
+        SMART_MODEL: ${{ inputs.smart-model }}
+        API_KEY: ${{ inputs.api-key }}
+        BASE_URL: ${{ inputs.base-url }}
+        APP_URL: ${{ inputs.app-url }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        SPEC_OUTPUT_DIR: ${{ inputs.spec-output-dir }}
+        TEST_COMMAND_SINGLE: ${{ inputs.test-command-single }}
+        MAX_ITERATIONS: ${{ inputs.max-iterations }}
+        WALL_CLOCK_SECONDS: ${{ inputs.wall-clock-seconds }}
+        SCREENSHOT_DIR: ${{ inputs.screenshot-dir }}
+        SCREENSHOTS_PER_ITEM: ${{ inputs.screenshots-per-item }}
+        BOT_NAME: ${{ inputs.bot-name }}
+        BOT_EMAIL: ${{ inputs.bot-email }}
+      run: node "${{ github.action_path }}/scripts/generate-spec.js"
+
+    - name: PR write-back
+      id: writeback
+      if: inputs.mode == 'test-plan'
+      shell: bash
+      env:
+        PR_META_PATH: .playwright-ai-router/pr-meta.json
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: node "${{ github.action_path }}/scripts/pr-writeback.js"
