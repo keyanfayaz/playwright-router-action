@@ -5,8 +5,12 @@
 set -u
 set -o pipefail
 
-OUT_DIR=".playwright-ai-router"
+# OUT_DIR is overridable so the test-plan agent loop can run a single spec
+# into a per-iteration scratch dir. Unset => identical to the original behavior.
+OUT_DIR="${OUT_DIR:-.playwright-ai-router}"
 LOG="$OUT_DIR/test-output.log"
+
+mkdir -p "$OUT_DIR"
 
 if [ -z "${TEST_COMMAND:-}" ]; then
   echo "TEST_COMMAND is empty" >&2

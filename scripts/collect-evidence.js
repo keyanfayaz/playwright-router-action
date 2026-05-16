@@ -9,7 +9,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const OUT_DIR = '.playwright-ai-router';
+// OUT_DIR / REPORT_DIR / RESULTS_DIR are env-overridable so a single spec can
+// be evidenced into a per-iteration scratch dir. Unset => original behavior.
+const OUT_DIR = process.env.OUT_DIR || '.playwright-ai-router';
+const REPORT_DIR = process.env.REPORT_DIR || 'playwright-report';
+const RESULTS_DIR = process.env.RESULTS_DIR || 'test-results';
 const LOG_PATH = path.join(OUT_DIR, 'test-output.log');
 const EXIT_PATH = path.join(OUT_DIR, 'exit-code');
 const EVIDENCE_PATH = path.join(OUT_DIR, 'evidence.json');
@@ -77,8 +81,8 @@ const log = stripAnsi(rawLog);
 const exitCode = Number((readSafe(EXIT_PATH) || '1').trim()) || 0;
 const passed = exitCode === 0;
 
-const reportFiles = listFiles('playwright-report');
-const resultFiles = listFiles('test-results');
+const reportFiles = listFiles(REPORT_DIR);
+const resultFiles = listFiles(RESULTS_DIR);
 
 const screenshots = resultFiles.filter(f => /\.(png|jpg|jpeg)$/i.test(f.path));
 const videos = resultFiles.filter(f => /\.(webm|mp4)$/i.test(f.path));
