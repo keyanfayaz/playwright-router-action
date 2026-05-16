@@ -15,62 +15,14 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { chat, tryParseJson, PROVIDER_DEFAULTS, setOutput } = require('./lib/llm.js');
 
 const OUT_DIR = '.playwright-ai-router';
 const EVIDENCE_PATH = path.join(OUT_DIR, 'evidence.json');
 const AI_PATH = path.join(OUT_DIR, 'ai-response.json');
 
-const PROVIDER_DEFAULTS = {
-  openrouter: 'https://openrouter.ai/api/v1',
-  together: 'https://api.together.xyz/v1',
-  groq: 'https://api.groq.com/openai/v1',
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-};
-
-function setOutput(key, value) {
-  const file = process.env.GITHUB_OUTPUT;
-  if (!file) return;
-  fs.appendFileSync(file, `${key}=${value}\n`);
-}
-
 function writeResult(obj) {
   fs.writeFileSync(AI_PATH, JSON.stringify(obj, null, 2));
-}
-
-async function chat({ baseUrl, apiKey, model, messages }) {
-  const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      messages,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`LLM HTTP ${res.status}: ${body.slice(0, 400)}`);
-  }
-  const json = await res.json();
-  const content = json.choices?.[0]?.message?.content || '';
-  return content;
-}
-
-function tryParseJson(s) {
-  if (!s) return null;
-  try { return JSON.parse(s); } catch {}
-  // Pull the first {...} block out of the string if the model wrapped it.
-  const m = s.match(/\{[\s\S]*\}/);
-  if (m) {
-    try { return JSON.parse(m[0]); } catch {}
-  }
-  return null;
 }
 
 function buildPrompt(evidence, taskKind) {
