@@ -1,3 +1,8 @@
+# Example consumer workflow (label-driven review, nightly cron, PR comment).
+#
+# Copy into .github/workflows/ in a repo that has a Playwright test project.
+# It does not live under .github/workflows/ here because this repo is just the
+# action definition — there is no Node/Playwright project to run against.
 name: Example — Playwright AI Router
 
 on:

@@ -32,7 +32,7 @@ It works against any **OpenAI-compatible** chat endpoint
 ```
 
 A full example (label-driven review, nightly cron, PR comment) lives in
-[`.github/workflows/example.yml`](.github/workflows/example.yml). A complete
+[`examples/example.yml`](examples/example.yml). A complete
 `mode: test-plan` workflow (permissions, `paths-ignore`, bot-actor guard,
 concurrency) lives in [`examples/test-plan.yml`](examples/test-plan.yml).
 
