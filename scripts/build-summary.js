@@ -92,6 +92,9 @@ if (Array.isArray(evidence.failed_tests) && evidence.failed_tests.length > 0) {
   lines.push('</details>');
 }
 
+lines.push('');
+lines.push('📊 Full visual report: download the `playwright-ai-router-report` workflow artifact (`playwright-ai-router-report.html`).');
+
 fs.writeFileSync(SUMMARY_PATH, lines.join('\n') + '\n');
 
 setOutput('summary-path', SUMMARY_PATH);

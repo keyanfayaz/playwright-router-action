@@ -114,6 +114,7 @@ function buildComment(result, owner, repo, headRef, tickNotes) {
   if (tickNotes && tickNotes.length) {
     L.push('> Note: ' + tickNotes.join('; '), '');
   }
+  L.push('📊 Full visual report: download the `playwright-ai-router-report` workflow artifact.');
   return L.join('\n');
 }
 

@@ -79,9 +79,20 @@ concurrency) lives in [`examples/test-plan.yml`](examples/test-plan.yml).
 | `items-failed`    | _(test-plan)_ Items that never produced a green spec. |
 | `items-skipped`   | _(test-plan)_ Items reported as skipped. |
 | `commit-sha`      | _(test-plan)_ Bot commit SHA pushed to the PR head, or empty. |
+| `report-path`     | Path to the generated self-contained HTML report. |
 
 The action **always fails the job when Playwright failed** — but only after the
 AI summary has been generated and uploaded to `$GITHUB_STEP_SUMMARY`.
+
+### Visual HTML report
+
+On every run (any `mode` other than `off`), the action renders a self-contained
+`playwright-ai-router-report.html` and uploads it as the
+**`playwright-ai-router-report`** workflow artifact. It includes the verdict,
+stat cards, the AI summary/failures (or per-item Automated / Failed / Skipped
+groups for `mode=test-plan`) with an inlined screenshot gallery — no external
+dependencies, viewable offline. The markdown summary and PR comment both point
+at it.
 
 ---
 

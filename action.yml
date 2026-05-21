@@ -114,6 +114,9 @@ outputs:
   commit-sha:
     description: (mode=test-plan) The bot commit SHA pushed to the PR head, or empty.
     value: ${{ steps.writeback.outputs.commit-sha }}
+  report-path:
+    description: Path to the generated self-contained HTML report.
+    value: ${{ steps.html-report.outputs.report-path }}
 
 runs:
   using: composite
@@ -175,14 +178,6 @@ runs:
           cat playwright-ai-router-summary.md >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    - name: Exit with Playwright status
-      if: inputs.mode != 'test-plan'
-      shell: bash
-      run: |
-        CODE="$(cat .playwright-ai-router/exit-code 2>/dev/null || echo 1)"
-        echo "Playwright exit code: $CODE"
-        exit "$CODE"
-
     # ----- test-plan pipeline ----------------------------------------------
     - name: Prepare workspace (test-plan)
       if: inputs.mode == 'test-plan'
@@ -237,3 +232,30 @@ runs:
         PR_META_PATH: .playwright-ai-router/pr-meta.json
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: node "${{ github.action_path }}/scripts/pr-writeback.js"
+
+    # ----- pretty HTML report (any mode != off) ----------------------------
+    - name: Build HTML report
+      id: html-report
+      if: always() && inputs.mode != 'off'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        APP_URL: ${{ inputs.app-url }}
+      run: node "${{ github.action_path }}/scripts/build-html-report.js"
+
+    - name: Upload HTML report artifact
+      if: always() && inputs.mode != 'off'
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-ai-router-report
+        path: playwright-ai-router-report.html
+        if-no-files-found: warn
+        retention-days: 14
+
+    - name: Exit with Playwright status
+      if: always() && inputs.mode != 'test-plan'
+      shell: bash
+      run: |
+        CODE="$(cat .playwright-ai-router/exit-code 2>/dev/null || echo 1)"
+        echo "Playwright exit code: $CODE"
+        exit "$CODE"
