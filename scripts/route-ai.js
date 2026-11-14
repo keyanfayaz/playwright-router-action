@@ -15,7 +15,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { chat, tryParseJson, PROVIDER_DEFAULTS, setOutput } = require('./lib/llm.js');
+const { chat, PROVIDER_DEFAULTS, setOutput } = require('./lib/llm.js');
+
+const { parseAnalysis } = require('./lib/schema.js');
 
 const OUT_DIR = '.playwright-ai-router';
 const EVIDENCE_PATH = path.join(OUT_DIR, 'evidence.json');
@@ -130,7 +132,7 @@ async function main() {
   let error = null;
   try {
     raw = await chat({ baseUrl, apiKey, model: fastModel, messages });
-    parsed = tryParseJson(raw);
+    parsed = parseAnalysis(raw);
   } catch (e) {
     error = String(e && e.message || e);
   }
@@ -148,7 +150,7 @@ async function main() {
         { role: 'user', content: `Escalation reason from fast model: ${escalation.why}. Re-analyze carefully and return the same JSON schema.` },
       ]);
       smartRaw = await chat({ baseUrl, apiKey, model: smartModel, messages: escMsgs });
-      smartParsed = tryParseJson(smartRaw);
+      smartParsed = parseAnalysis(smartRaw);
       if (smartParsed) {
         usedModel = smartModel;
         parsed = smartParsed;

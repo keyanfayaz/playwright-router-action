@@ -78,7 +78,8 @@ function parseFailures(log) {
 
 const rawLog = readSafe(LOG_PATH);
 const log = stripAnsi(rawLog);
-const exitCode = Number((readSafe(EXIT_PATH) || '1').trim()) || 0;
+const rawExit = readSafe(EXIT_PATH).trim();
+const exitCode = /^\d+$/.test(rawExit) && Number(rawExit) <= 255 ? Number(rawExit) : 1;
 const passed = exitCode === 0;
 
 const reportFiles = listFiles(REPORT_DIR);

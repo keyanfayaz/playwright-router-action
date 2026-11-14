@@ -1,0 +1,10 @@
+{
+  "name": "playwright-ai-router-checks",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:browser": "node --test test/browser/*.test.js"
+  },
+  "devDependencies": { "@playwright/test": "1.56.1" },
+  "engines": { "node": ">=20" }
+}

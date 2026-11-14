@@ -21,10 +21,12 @@ function setOutput(key, value) {
   fs.appendFileSync(file, `${key}=${value}\n`);
 }
 
-async function chat({ baseUrl, apiKey, model, messages }) {
+async function chat({ baseUrl, apiKey, model, messages, timeoutMs = 30000 }) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("Invalid LLM timeout");
   const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
   const res = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -37,11 +39,12 @@ async function chat({ baseUrl, apiKey, model, messages }) {
     }),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`LLM HTTP ${res.status}: ${body.slice(0, 400)}`);
+    // Provider error bodies can echo request data or credentials.
+    throw new Error(`LLM HTTP ${res.status}`);
   }
   const json = await res.json();
   const content = json.choices?.[0]?.message?.content || '';
+  if (typeof content !== 'string') throw new Error('LLM content must be text');
   return content;
 }
 
