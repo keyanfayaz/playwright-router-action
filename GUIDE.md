@@ -1,3 +1,9 @@
+> **Safety change:** `mode: test-plan` is disabled in the current revision. It
+> fails before generation, execution, or writeback. The historical test-plan
+> reference below is retained to explain the former interface, not as a supported
+> deployment recipe. A separate credential-free execution boundary is required
+> before re-enabling it. Analysis/review/off modes remain available.
+
 # Playwright AI Router
 
 A reusable **composite GitHub Action** that runs your Playwright suite, gathers

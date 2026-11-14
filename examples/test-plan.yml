@@ -1,3 +1,4 @@
+# HISTORICAL ONLY: test-plan is disabled. Do not deploy this workflow.
 # Example consumer workflow for `mode: test-plan`.
 #
 # Copy into .github/workflows/ in your repo. It turns each PR's `## Test plan`

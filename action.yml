@@ -24,7 +24,7 @@ inputs:
     required: false
     default: moonshotai/kimi-k2.6
   mode:
-    description: One of off, failure-analysis, review, test-plan.
+    description: One of off, failure-analysis, review. test-plan is disabled for safety.
     required: false
     default: failure-analysis
   api-key:
@@ -42,8 +42,7 @@ inputs:
   github-token:
     description: >-
       GitHub token used by mode=test-plan to read/edit the PR, comment, and push
-      generated specs. Required when mode=test-plan (needs contents:write and
-      pull-requests:write). Unused by other modes.
+      generated specs. Reserved for a future isolated test-plan implementation. Currently unused.
     required: false
     default: ''
   spec-output-dir:
@@ -101,19 +100,19 @@ outputs:
     value: ${{ steps.summary.outputs.conclusion }}
   items-total:
     description: (mode=test-plan) Total Test plan items found.
-    value: ${{ steps.writeback.outputs.items-total }}
+    value: '0'
   items-automated:
     description: (mode=test-plan) Items turned into committed, passing specs.
-    value: ${{ steps.writeback.outputs.items-automated }}
+    value: '0'
   items-failed:
     description: (mode=test-plan) Items that never produced a green spec.
-    value: ${{ steps.writeback.outputs.items-failed }}
+    value: '0'
   items-skipped:
     description: (mode=test-plan) Items reported as skipped (not attempted).
-    value: ${{ steps.writeback.outputs.items-skipped }}
+    value: '0'
   commit-sha:
     description: (mode=test-plan) The bot commit SHA pushed to the PR head, or empty.
-    value: ${{ steps.writeback.outputs.commit-sha }}
+    value: ''
   report-path:
     description: Path to the generated self-contained HTML report.
     value: ${{ steps.html-report.outputs.report-path }}
@@ -124,7 +123,9 @@ runs:
     - name: Mask API key
       if: inputs.api-key != ''
       shell: bash
-      run: echo "::add-mask::${{ inputs.api-key }}"
+      env:
+        MASKED_API_KEY: ${{ inputs.api-key }}
+      run: printf '::add-mask::%s\n' "$MASKED_API_KEY"
 
     # ----- off / failure-analysis / review pipeline (unchanged) -------------
     - name: Prepare workspace
@@ -178,65 +179,18 @@ runs:
           cat playwright-ai-router-summary.md >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    # ----- test-plan pipeline ----------------------------------------------
-    - name: Prepare workspace (test-plan)
+    # Fail before accepting any provider or write credentials in this mode.
+    - name: Reject unsafe autonomous generation
       if: inputs.mode == 'test-plan'
       shell: bash
-      env:
-        SPEC_OUTPUT_DIR: ${{ inputs.spec-output-dir }}
-        SCREENSHOT_DIR: ${{ inputs.screenshot-dir }}
       run: |
-        rm -rf .playwright-ai-router
-        mkdir -p .playwright-ai-router "$SPEC_OUTPUT_DIR" "$SCREENSHOT_DIR"
-
-    - name: Read PR metadata
-      if: inputs.mode == 'test-plan'
-      shell: bash
-      run: node "${{ github.action_path }}/scripts/read-pr-meta.js"
-
-    - name: Parse Test plan
-      if: inputs.mode == 'test-plan'
-      shell: bash
-      env:
-        PR_META_PATH: .playwright-ai-router/pr-meta.json
-        SKIP_PATTERNS: ${{ inputs.skip-patterns }}
-      run: node "${{ github.action_path }}/scripts/parse-test-plan.js"
-
-    - name: Generate specs
-      if: inputs.mode == 'test-plan'
-      shell: bash
-      env:
-        PR_META_PATH: .playwright-ai-router/pr-meta.json
-        PROVIDER: ${{ inputs.provider }}
-        FAST_MODEL: ${{ inputs.fast-model }}
-        SMART_MODEL: ${{ inputs.smart-model }}
-        API_KEY: ${{ inputs.api-key }}
-        BASE_URL: ${{ inputs.base-url }}
-        APP_URL: ${{ inputs.app-url }}
-        GITHUB_TOKEN: ${{ inputs.github-token }}
-        SPEC_OUTPUT_DIR: ${{ inputs.spec-output-dir }}
-        TEST_COMMAND_SINGLE: ${{ inputs.test-command-single }}
-        MAX_ITERATIONS: ${{ inputs.max-iterations }}
-        WALL_CLOCK_SECONDS: ${{ inputs.wall-clock-seconds }}
-        SCREENSHOT_DIR: ${{ inputs.screenshot-dir }}
-        SCREENSHOTS_PER_ITEM: ${{ inputs.screenshots-per-item }}
-        BOT_NAME: ${{ inputs.bot-name }}
-        BOT_EMAIL: ${{ inputs.bot-email }}
-      run: node "${{ github.action_path }}/scripts/generate-spec.js"
-
-    - name: PR write-back
-      id: writeback
-      if: inputs.mode == 'test-plan'
-      shell: bash
-      env:
-        PR_META_PATH: .playwright-ai-router/pr-meta.json
-        GITHUB_TOKEN: ${{ inputs.github-token }}
-      run: node "${{ github.action_path }}/scripts/pr-writeback.js"
+        echo '::error::test-plan is disabled pending an isolated credential-free runner and reviewed writeback.'
+        exit 1
 
     # ----- pretty HTML report (any mode != off) ----------------------------
     - name: Build HTML report
       id: html-report
-      if: always() && inputs.mode != 'off'
+      if: always() && inputs.mode != 'off' && inputs.mode != 'test-plan'
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -244,7 +198,7 @@ runs:
       run: node "${{ github.action_path }}/scripts/build-html-report.js"
 
     - name: Upload HTML report artifact
-      if: always() && inputs.mode != 'off'
+      if: always() && inputs.mode != 'off' && inputs.mode != 'test-plan'
       uses: actions/upload-artifact@v4
       with:
         name: playwright-ai-router-report
