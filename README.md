@@ -20,7 +20,7 @@ In a workflow that has already checked out the project, installed dependencies,
 and installed Playwright browsers:
 
 ```yaml
-- uses: keyanfayaz/playwright-router-action@8162b485615eef11a0f19a888288adc128a51515
+- uses: keyanfayaz/playwright-router-action@bd73bc83d43fe97a764cc9e2c5ea2ca2ea527485
   with:
     test-command: npx playwright test --reporter=list
     mode: failure-analysis
@@ -28,7 +28,8 @@ and installed Playwright browsers:
     api-key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
-This example pins an existing commit. No `v1` tag or branch is published.
+This example pins the safety-review commit proposed in this branch, not a released
+version. Review the changes before adopting it. No `v1` tag or branch is published.
 Choose and review the provider, endpoint, and model inputs for your project.
 AI modes send test evidence to that provider; keep secrets and private data out
 of collected test output.
